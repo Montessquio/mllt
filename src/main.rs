@@ -1,49 +1,63 @@
-use std::time::Instant;
 use clap::Parser;
 use cli::{Cli, Command};
-use config::Config;
-use site::Site;
 use color_eyre::eyre::Result;
+use config::Config;
+use new::instantiate_site;
+use site::Site;
+use std::time::Instant;
 use tracing::{debug, info};
 
 mod cli;
 mod config;
+mod new;
 mod site;
 
 fn main() -> Result<()> {
+    // Startup initialization. Pretty print errors to console,
+    // parse CLI arguments, initialize logging.
+    color_eyre::install()?;
     let cli: cli::Cli = Cli::parse();
-    init_tracing(cli.verbose);
-
+    init_tracing(cli.verbose, cli.quiet);
     debug!("Strike the Earth!");
-    
-    // Some CLI flags overwrite config file options.
-    // merge_with applies this into one, single config struct.
-    let config = Config::from_file(cli.config.as_path())?.merge_with(&cli);
-    debug!("Final Config: {config:#?}");
 
     match &cli.command {
-        Some(Command::Serve { port }) => {
-            render(&config)?;
-            tracing::info!("Starting development server on port {}", port);
+        Command::New { force, base_path } => {
+            instantiate_site(base_path, *force)
+        }
+        Command::Serve { port: _port, .. } => {
             // Add server logic here
             todo!()
         }
-        None => {
-            render(&config)
-        }
+        Command::Build { config, .. } => {
+            // Some CLI flags overwrite config file options.
+            // merge_with applies this into one, single config struct.
+            render(&Config::from_file(config.as_path())?.merge_with(&cli))
+        },
     }
 }
 
 fn render(config: &Config) -> Result<()> {
     let now = Instant::now();
-    info!("Building site to \"{}\"", config.out_dir.display());
-    let site = Site::new(config)?;
+
+    debug!("Final Config: {config:#?}");
+
+    // Perform the render.
+    info!("Building site to \"{}\"", config.site.out_dir.display());
+    let mut site = Site::new(config)?;
+    site.reload_templates()?;
     site.render()?;
     info!("Done! Took {}", format_duration(now.elapsed())?);
     Ok(())
 }
 
-fn init_tracing(verbosity: u8) {
+fn init_tracing(verbosity: u8, is_quiet: bool) {
+    if is_quiet {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
+        return;
+    }
+
     match verbosity {
         0 => tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)

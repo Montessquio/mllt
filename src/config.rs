@@ -6,38 +6,87 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::Cli;
 
+/// A unified configuration struct, parsed from a `mllt.toml`
+/// site configuration file.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
-    /// Site <h1>
-    pub name: String,
-    /// Site <title>
-    pub title: String,
-    /// Site description
-    pub desc: String,
-    /// Use the bundled normalize.min.css?
-    #[serde(default = "default_true")]
-    pub normalize: bool,
+    /// Project-specific options.
+    pub site: Site,
+
+    /// Extra values stored in the config for convenience lookup
+    pub params: HashMap<String, serde_json::Value>,
+}
+
+impl Default for Config {
+    /// This default is used primarily for creating a [new project](crate::new).
+    /// It doesn't describe anything useful besides an example site configuration.
+    fn default() -> Self {
+        Self {
+            site: Site {
+                baseurl: "example.com".to_owned(),
+                out_dir: "./output".into(),
+                content: "./content".into(),
+                theme: Some("./theme".into()),
+                assets: Some("./assets".into()),
+                strict: false,
+            },
+            params: {
+                let mut hm: HashMap<String, serde_json::Value> = HashMap::new();
+                hm.insert("title".into(), "MLLT Example Site".into());
+                hm.insert("desc".into(), "This is an example MLLT site.".into());
+                hm.insert("some_nonstring_value".into(), 42.into());
+                hm.insert("links".into(), serde_json::json!([
+                    { "name": "My Social Media", "value": "@example.bsky.app", "iconuri": "./bsky_icon.png" },
+                    { "name": "My Blog", "value": "https://blog.example.com" },
+                    { "name": "My Github", "value": "https://github.com", "iconuri": "./gh_icon.png" },
+                ]));
+                hm.insert(
+                    "made_with".into(),
+                    serde_json::json!({
+                        "name": "mllt",
+                        "link": "https://github.com/Montessquio/mllt",
+                    }),
+                );
+                hm
+            },
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Site {
     /// Site BaseURL
     #[serde(rename = "baseURL")]
     pub baseurl: String,
+
     /// Where to put artifacts
-    #[serde(default = "default_outdir")]
+    #[serde(rename = "publishdir", default = "default_outdir")]
     pub out_dir: PathBuf,
+
     /// HBS templates folder
-    pub theme: PathBuf,
+    pub content: PathBuf,
+
+    /// HBS partials folder. Technically there doesn't need to be
+    /// any partials in the simplest of outputs, so this is optional.
+    pub theme: Option<PathBuf>,
+
     /// Static assets folder copied directly to output.
     /// No assets folder means no static assets will be copied.
     pub assets: Option<PathBuf>,
-    /// Extra values stored in the config for convenience lookup
-    pub env: HashMap<String, serde_json::Value>,
+
+    /// Enable strict mode in the handlebars parser. This causes
+    /// missing or unknown values to produce hard errors instead of
+    /// empty strings.
+    #[serde(default = "default_false")]
+    pub strict: bool,
 }
 
 fn default_outdir() -> PathBuf {
     "./html".into()
 }
 
-const fn default_true() -> bool {
-    true
+const fn default_false() -> bool {
+    false
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -50,7 +99,8 @@ pub struct Link {
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Config> {
         Self::from_str(
-            fs::read_to_string(path.as_ref()).context(format!("Error opening: \"{}\"", path.as_ref().display()))?,
+            fs::read_to_string(path.as_ref())
+                .context(format!("Error opening: \"{}\"", path.as_ref().display()))?,
         )
     }
 
@@ -60,18 +110,38 @@ impl Config {
     }
 
     pub fn update_from(&mut self, cli: &Cli) {
-        if let Some(output_folder) = cli.output.clone() {
-            self.out_dir = output_folder;
+        match &cli.command {
+            crate::cli::Command::Build {
+                strict,
+                output,
+                content,
+                theme,
+                assets,
+                config: _config,
+            } => {
+                if let Some(is_strict) = strict {
+                    self.site.strict = *is_strict;
+                }
+
+                if let Some(output_folder) = output.clone() {
+                    self.site.out_dir = output_folder;
+                }
+
+                if let Some(content_folder) = content.clone() {
+                    self.site.content = content_folder;
+                }
+
+                if let Some(theme_folder) = theme.clone() {
+                    self.site.theme = Some(theme_folder);
+                }
+
+                if let Some(assets_folder) = assets.clone() {
+                    self.site.assets = Some(assets_folder);
+                }
+            }
+            crate::cli::Command::Serve { strict: Some(is_strict), .. } => self.site.strict = *is_strict,
+            _ => {}
         }
-        
-        if let Some(theme_folder) = cli.theme.clone() {
-            self.theme = theme_folder;
-        }
-    
-        if let Some(assets_folder) = cli.assets.clone() {
-            self.assets = Some(assets_folder);
-        }
-    
     }
 
     pub fn merge_with(mut self, cli: &Cli) -> Self {
@@ -84,14 +154,9 @@ impl TryFrom<&Config> for serde_json::Value {
     type Error = color_eyre::eyre::Error;
     fn try_from(value: &Config) -> std::result::Result<Self, Self::Error> {
         Ok(serde_json::json!({
-            "site": {
-                "name": value.name,
-                "title": value.title,
-                "desc": value.desc,
-                "baseurl": value.baseurl,
-            },
-            "normalize": include_str!("normalize.min.css"),
-            "env": value.env,
+            "site": value.site,
+            "params": value.params,
+            "_bundled_normalize": include_str!("normalize.min.css"),
         }))
     }
 }

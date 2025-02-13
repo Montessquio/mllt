@@ -1,0 +1,13 @@
+{{#theme "theme/page"}}
+<ul>
+    {{#each params.links}}
+        <li>
+            <a class="external-link" href="{{ value }}"> {{#if icon}}
+                <img style="width: 3ch" src="{{ ../site.baseurl }}{{ icon }}" />
+                {{else if icon_svg}}
+                <object style="width: 3ch" data="{{ icon_svg }}" type="image/svg+xml"></object>
+                {{/if}}<span>{{ name }}: {{ ../params.some_nonstring_value }}</span></a>
+        </li>
+    {{/each}}
+</ul>
+{{/theme}}
