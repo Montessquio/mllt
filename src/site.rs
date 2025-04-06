@@ -3,6 +3,7 @@ use handlebars::{
     BlockContext, BlockParamHolder, Context, Handlebars, Helper, Output, RenderContext, RenderErrorReason, Renderable,
 };
 use ignore::WalkBuilder;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -23,8 +24,7 @@ pub struct Site<'a> {
 impl<'a> Site<'a> {
     pub fn new(config: &'a Config) -> Result<Self> {
         let handlebars = {
-            let mut handlebars = Handlebars::new();
-            handlebars.set_strict_mode(config.site.strict);
+            let mut handlebars = Handlebars::new(); 
             handlebars.register_helper("theme", Box::new(ThemeHelper));
             handlebars
         };
@@ -59,8 +59,7 @@ impl<'a> Site<'a> {
             .parents(true)
             .build();
 
-        // TODO: Parallelize
-        for entry in w {
+        w.par_bridge().try_for_each(|entry| {
             let entry = entry?;
             if entry.path().extension().and_then(|s| s.to_str()) == Some("hbs") {
                 let template_name =
@@ -84,7 +83,9 @@ impl<'a> Site<'a> {
 
                 file.write_all(rendered.as_bytes())?;
             }
-        }
+            
+            Ok::<(), color_eyre::Report>(())
+        })?;
 
         // Copy the `assets` folder into the output folder
         if let Some(assets) = self.assets.as_deref() {
