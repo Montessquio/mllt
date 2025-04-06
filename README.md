@@ -8,7 +8,7 @@
 ## Features
 
 - ⚡ **Sub-millisecond template rendering** with Rust-powered engine
-- 🎨 **Handlebars templating** with quick, easy-to-learn transclusion system
+- 🎨 **Handlebars templating** with quick, easy-to-learn theme system
 - ⚙️ **TOML configuration** with CLI overrides
 - 📦 **Automatic asset pipeline** with smart incremental copying
 - 🔍 **Strict mode** for debugging template variables
